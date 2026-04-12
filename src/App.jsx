@@ -356,7 +356,7 @@ function ChatPanel({chatState,setChatState,onXPGain}){
         :"You are DD, an energetic enthusiastic AI companion on the Buddy app. Buddy helps lonely people make real-world connections. Be motivating, fun, and push users to try new things. 2-3 sentences max.";
       const res=await fetch("https://api.groq.com/openai/v1/chat/completions",{
         method:"POST",
-        headers:{"Content-Type":"application/json","Authorization":"Bearer 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"},
+        headers:{"Content-Type":"application/json","Authorization":"Bearer "+import.meta.env.VITE_GROQ_API_KEY},
         body:JSON.stringify({model:"llama-3.1-8b-instant",messages:[{role:"system",content:systemPrompt},{role:"user",content:txt}],max_tokens:150,temperature:0.8})
       });
       const data=await res.json();
