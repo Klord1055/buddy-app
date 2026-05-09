@@ -232,7 +232,57 @@ function PersonModal({person,onClose,onXPGain}){
     </div>
   );
 }
+function AuthScreen({onAuth}){
+  const [mode,setMode]=useState("login");
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
 
+  const handle=async()=>{
+    if(!email.trim()||!password.trim())return;
+    setLoading(true);
+    setError("");
+    try{
+      let result;
+      if(mode==="login"){
+        result=await supabase.auth.signInWithPassword({email,password});
+      }else{
+        result=await supabase.auth.signUp({email,password});
+      }
+      if(result.error){
+        setError(result.error.message);
+      }else{
+        onAuth(result.data.user);
+      }
+    }catch(e){
+      setError("Something went wrong. Try again.");
+    }
+    setLoading(false);
+  };
+
+  return(
+    <div className="fi" style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:580,padding:"2rem 1.5rem",textAlign:"center"}}>
+      <div className="fl" style={{marginBottom:20}}><Logo size={50}/></div>
+      <div style={{width:56,height:3,borderRadius:2,background:`linear-gradient(90deg,${COLORS.bu},${COLORS.dd})`,marginBottom:24}}/>
+      <h2 style={{fontSize:26,fontWeight:700,fontFamily:"'Sora',sans-serif",margin:"0 0 10px",color:"var(--tp)"}}>{mode==="login"?"Welcome back 👋":"Join Buddy 🌱"}</h2>
+      <p style={{fontSize:15,color:"var(--ts)",marginBottom:32,maxWidth:290,lineHeight:1.6}}>{mode==="login"?"Sign in to continue your journey":"Create your account and start connecting"}</p>
+      
+      {error&&<div style={{background:"#FF6B6B18",border:"1px solid #FF6B6B40",borderRadius:12,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#FF6B6B",width:"100%",maxWidth:320}}>{error}</div>}
+      
+      <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email" type="email" style={{maxWidth:320,marginBottom:12,fontSize:15}} autoFocus/>
+      <input value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()} placeholder="Password" type="password" style={{maxWidth:320,marginBottom:20,fontSize:15}}/>
+      
+      <button onClick={handle} disabled={loading||!email.trim()||!password.trim()} style={{width:"100%",maxWidth:320,padding:"14px 0",borderRadius:14,border:"none",background:email.trim()&&password.trim()?`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`:"#E8E5F5",color:email.trim()&&password.trim()?"white":"var(--tt)",fontSize:15,fontWeight:700,marginBottom:16}}>
+        {loading?"...":(mode==="login"?"Sign in →":"Create account →")}
+      </button>
+      
+      <button onClick={()=>{setMode(mode==="login"?"signup":"login");setError("");}} style={{background:"none",border:"none",fontSize:13,color:"var(--ts)",fontWeight:600}}>
+        {mode==="login"?"Don't have an account? Sign up":"Already have an account? Sign in"}
+      </button>
+    </div>
+  );
+}
 function OnboardName({onNext}){
   const [name,setName]=useState("");
   const ok=name.trim().length>0;
@@ -763,7 +813,10 @@ function ProfileScreen({name,interests,xp,onDelete}){
       </div>
       <div style={{marginBottom:32}}>
         {!confirmDel?(
-          <button onClick={()=>setConfirmDel(true)} style={{width:"100%",padding:"12px 0",borderRadius:14,border:"1.5px solid #FF6B6B40",background:"#FF6B6B0a",color:"#FF6B6B",fontSize:13,fontWeight:700}}>Delete Account</button>
+          <div style={{display:"flex",flexDirection:"column",gap:10}}>
+          <button onClick={()=>supabase.auth.signOut().then(()=>window.location.reload())} style={{width:"100%",padding:"12px 0",borderRadius:14,border:`1.5px solid ${COLORS.bu}40`,background:COLORS.bu+"0a",color:COLORS.bu,fontSize:13,fontWeight:700,marginBottom:10}}>Log Out</button>
+<button onClick={()=>setConfirmDel(true)} style={{width:"100%",padding:"12px 0",borderRadius:14,border:"1.5px solid #FF6B6B40",background:"#FF6B6B0a",color:"#FF6B6B",fontSize:13,fontWeight:700}}>Delete Account</button>
+          </div>
         ):(
           <div style={{background:"#FF6B6B0f",border:"1.5px solid #FF6B6B40",borderRadius:18,padding:16}}>
             <p style={{margin:"0 0 6px",fontSize:14,fontWeight:700,color:"var(--tp)",fontFamily:"'Sora',sans-serif"}}>Are you sure?</p>
@@ -806,7 +859,7 @@ function ProfileScreen({name,interests,xp,onDelete}){
 }
 
 function App(){
-  const [screen,setScreen]=useState("name");
+  const [screen,setScreen]=useState("auth");
   const [name,setName]=useState("");
   const [ints,setInts]=useState([]);
   const [tab,setTab]=useState("home");
@@ -882,7 +935,8 @@ function App(){
         {toast&&screen==="app"&&(
           <div key={toast.key} className="xp" style={{position:"absolute",top:64,left:"50%",background:rank.color,color:"white",borderRadius:30,padding:"8px 20px",fontSize:13.5,fontWeight:700,zIndex:200,whiteSpace:"nowrap",pointerEvents:"none"}}>+{toast.amt} XP</div>
         )}
-        {screen==="name"&&<OnboardName onNext={n=>{setName(n);setScreen("quiz");}}/>}
+        {screen==="auth"&&<AuthScreen onAuth={(user)=>{setUserId(user.id);setScreen("name");}}/>}
+{screen==="name"&&<OnboardName onNext={n=>{setName(n);setScreen("quiz");}}/>}
         {screen==="quiz"&&<OnboardInterests name={name} onNext={i=>{setInts(i);setScreen("mascots");}}/>}
         {screen==="mascots"&&<OnboardMascots name={name} onNext={()=>signUpAndSave(name,ints)}/>}
         {screen==="app"&&(
