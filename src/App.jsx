@@ -43,7 +43,14 @@ const INTERESTS = [
   { id:"travel",label:"Travel",emoji:"✈️" },{ id:"photography",label:"Photos",emoji:"📷" },
   { id:"coding",label:"Coding",emoji:"💻" },{ id:"yoga",label:"Yoga",emoji:"🧘" },
 ];
-
+const MOODS = [
+  { id:"fired", emoji:"🔥", label:"Fired up" },
+  { id:"happy", emoji:"😊", label:"Happy" },
+  { id:"chill", emoji:"😎", label:"Chill" },
+  { id:"nervous", emoji:"😬", label:"Nervous" },
+  { id:"proud", emoji:"💪", label:"Proud" },
+  { id:"lonely", emoji:"😔", label:"Lonely" },
+];
 const FRIENDS_INIT = [
   { id:1, name:"Maya",   initials:"M",  color:COLORS.dd,     level:4, status:"online" },
   { id:2, name:"Jordan", initials:"J",  color:COLORS.bu,     level:6, status:"on a task" },
@@ -462,9 +469,63 @@ function ChatPanel({chatState,setChatState,onXPGain}){
     </div>
   );
 }
+function PostModal({userId, userName, onClose, onPost}){
+  const [mood, setMood] = useState(null);
+  const [activity, setActivity] = useState("");
+  const [text, setText] = useState("");
+  const [loading, setLoading] = useState(false);
 
+  const submit = async () => {
+    if(!mood) return;
+    setLoading(true);
+    const content = `Feeling ${mood.emoji} ${mood.label}${activity ? ` · ${activity}` : ""}${text ? ` · ${text}` : ""}`;
+    try {
+      await supabase.from('feed_posts').insert({
+        user_id: userId,
+        content: content,
+        task_label: activity || null,
+        likes_count: 0,
+      });
+      onPost(content);
+    } catch(e) {
+      console.error(e);
+    }
+    setLoading(false);
+    onClose();
+  };
+
+  return(
+    <div className="mb" onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(26,22,37,.7)",zIndex:300,display:"flex",alignItems:"flex-end",justifyContent:"center"}}>
+      <div className="se" onClick={e=>e.stopPropagation()} style={{background:"var(--card)",borderRadius:"24px 24px 0 0",padding:"20px 20px 36px",width:"100%",maxWidth:420}}>
+        <div style={{width:40,height:4,borderRadius:2,background:"var(--border)",margin:"0 auto 18px"}}/>
+        <p style={{fontSize:16,fontWeight:700,color:"var(--tp)",fontFamily:"'Sora',sans-serif",marginBottom:4}}>Share with the community</p>
+        <p style={{fontSize:13,color:"var(--ts)",marginBottom:16}}>How are you feeling?</p>
+        
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:8,marginBottom:16}}>
+          {MOODS.map(m=>(
+            <button key={m.id} onClick={()=>setMood(m)} style={{padding:"10px 6px",borderRadius:14,border:`2px solid ${mood?.id===m.id?COLORS.bu:"var(--border)"}`,background:mood?.id===m.id?COLORS.bu+"18":"none",display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
+              <span style={{fontSize:22}}>{m.emoji}</span>
+              <span style={{fontSize:11,fontWeight:mood?.id===m.id?700:500,color:mood?.id===m.id?COLORS.bu:"var(--ts)"}}>{m.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <input value={activity} onChange={e=>setActivity(e.target.value)} placeholder="What did you do? (optional)" style={{marginBottom:10,fontSize:14}}/>
+        <input value={text} onChange={e=>setText(e.target.value)} placeholder="Anything to add? (optional)" style={{marginBottom:16,fontSize:14}}/>
+
+        <div style={{display:"flex",gap:10}}>
+          <button onClick={onClose} style={{flex:1,padding:"11px 0",borderRadius:14,border:"1px solid var(--border)",background:"none",fontSize:14,fontWeight:600,color:"var(--ts)"}}>Cancel</button>
+          <button onClick={submit} disabled={!mood||loading} style={{flex:2,padding:"11px 0",borderRadius:14,border:"none",background:mood?`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`:"#E8E5F5",color:mood?"white":"var(--tt)",fontSize:14,fontWeight:700}}>
+            {loading?"Posting...":"Post to feed 🚀"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 function HomeScreen({name,xp,userId,onOpenChat}){
   const [liked,setLiked]=useState({});
+  const [showPost,setShowPost]=useState(false);
   const [posts,setPosts]=useState(FEED_POSTS);
   const [loadingPosts,setLoadingPosts]=useState(false);
   const hour=new Date().getHours();
@@ -474,9 +535,11 @@ function HomeScreen({name,xp,userId,onOpenChat}){
   const loadPosts=async()=>{
     setLoadingPosts(true);
     try{
-      const {data}=await supabase.from('feed_posts').select(`id,content,task_label,likes_count,created_at,profiles(name,avatar_initials,avatar_color,xp)`).order('created_at',{ascending:false}).limit(20);
-      if(data&&data.length>0){
-        setPosts(data.map(p=>({id:p.id,user:p.profiles?.name||'Buddy User',initials:p.profiles?.avatar_initials||'?',color:p.profiles?.avatar_color||COLORS.bu,time:timeAgo(p.created_at),content:p.content,likes:p.likes_count,task:p.task_label,level:getRank(p.profiles?.xp||0).level})));
+      const {data,error}=await supabase.from('feed_posts').select(`id,content,task_label,likes_count,created_at,profiles!feed_posts_user_id_fkey(name,avatar_initials,avatar_color,xp)`).order('created_at',{ascending:false}).limit(20);
+      if(error) console.log('Feed error:',error);
+      if(data){
+        const realPosts=data.map(p=>({id:p.id,user:p.profiles?.name||'Buddy User',initials:p.profiles?.avatar_initials||'?',color:p.profiles?.avatar_color||COLORS.bu,time:timeAgo(p.created_at),content:p.content,likes:p.likes_count,task:p.task_label,level:getRank(p.profiles?.xp||0).level}));
+        setPosts(realPosts.length>0?realPosts:FEED_POSTS);
       }
     }catch(e){console.log('Using mock feed');}
     setLoadingPosts(false);
@@ -514,7 +577,11 @@ function HomeScreen({name,xp,userId,onOpenChat}){
         </div>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tt)" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
-      <p style={{fontSize:11,fontWeight:700,color:"var(--tt)",margin:"0 0 12px",textTransform:"uppercase",letterSpacing:1}}>Community Feed</p>
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+        <p style={{fontSize:11,fontWeight:700,color:"var(--tt)",margin:0,textTransform:"uppercase",letterSpacing:1}}>Community Feed</p>
+        <button onClick={()=>setShowPost(true)} style={{background:`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`,border:"none",borderRadius:10,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white"}}>+ Post</button>
+      </div>
+      {showPost&&<PostModal userId={userId} userName={name} onClose={()=>setShowPost(false)} onPost={content=>{setPosts(p=>[{id:Date.now(),user:name,initials:name[0]?.toUpperCase()||'?',color:COLORS.bu,time:'just now',content,likes:0,task:null,level:getRank(xp).level},...p]);setShowPost(false);loadPosts();}}/>}
       {loadingPosts&&<p style={{textAlign:"center",color:"var(--tt)",fontSize:13,padding:"20px 0"}}>Loading posts...</p>}
       {posts.map((p,idx)=>(
         <div key={p.id} className="fi" style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:18,padding:14,marginBottom:12,animationDelay:`${idx*.07}s`}}>
