@@ -728,13 +728,73 @@ function NearbyScreen({onXPGain}){
   );
 }
 
-function FriendsScreen(){
-  const [friends,setFriends]=useState(FRIENDS_INIT);
-  const [reqs,setReqs]=useState(REQS_INIT);
+function FriendsScreen({userId}){
+  const [friends,setFriends]=useState([]);
+  const [reqs,setReqs]=useState([]);
   const [tab,setTab]=useState("friends");
   const [search,setSearch]=useState("");
-  const accept=id=>{const r=reqs.find(x=>x.id===id);if(r){setFriends(f=>[...f,{...r,status:"new friend"}]);setReqs(q=>q.filter(x=>x.id!==id));}};
-  const decline=id=>setReqs(q=>q.filter(x=>x.id!==id));
+  const [searchResults,setSearchResults]=useState([]);
+  const [searching,setSearching]=useState(false);
+  const [sentReqs,setSentReqs]=useState({});
+
+  useEffect(()=>{
+    if(userId){
+      loadFriends();
+      loadRequests();
+    }
+  },[userId]);
+
+  const loadFriends=async()=>{
+    const {data}=await supabase.from('friendships')
+      .select(`id,requester_id,addressee_id,
+        requester:profiles!friendships_requester_id_fkey(id,name,avatar_initials,avatar_color,xp),
+        addressee:profiles!friendships_addressee_id_fkey(id,name,avatar_initials,avatar_color,xp)`)
+      .eq('status','accepted')
+      .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
+    if(data){
+      setFriends(data.map(f=>{
+        const friend=f.requester_id===userId?f.addressee:f.requester;
+        return{id:f.id,name:friend?.name||'?',initials:friend?.avatar_initials||'?',color:friend?.avatar_color||COLORS.bu,level:getRank(friend?.xp||0).level,status:'friend'};
+      }));
+    }
+  };
+
+  const loadRequests=async()=>{
+    const {data}=await supabase.from('friendships')
+      .select(`id,requester_id,requester:profiles!friendships_requester_id_fkey(id,name,avatar_initials,avatar_color,xp)`)
+      .eq('status','pending')
+      .eq('addressee_id',userId);
+    if(data){
+      setReqs(data.map(r=>({id:r.id,name:r.requester?.name||'?',initials:r.requester?.avatar_initials||'?',color:r.requester?.avatar_color||COLORS.bu,level:getRank(r.requester?.xp||0).level})));
+    }
+  };
+
+  const searchUsers=async(q)=>{
+    setSearch(q);
+    if(q.trim().length<2){setSearchResults([]);return;}
+    setSearching(true);
+    console.log('Searching for:',q,'userId:',userId);
+    const {data}=await supabase.from('profiles').select('id,name,avatar_initials,avatar_color,xp,interests').ilike('name',`%${q}%`).neq('id',userId).limit(10);
+    if(data) setSearchResults(data);
+    setSearching(false);
+  };
+
+  const sendRequest=async(toId)=>{
+    await supabase.from('friendships').insert({requester_id:userId,addressee_id:toId,status:'pending'});
+    setSentReqs(s=>({...s,[toId]:true}));
+  };
+
+  const accept=async(id)=>{
+    await supabase.from('friendships').update({status:'accepted'}).eq('id',id);
+    setReqs(q=>q.filter(x=>x.id!==id));
+    loadFriends();
+  };
+
+  const decline=async(id)=>{
+    await supabase.from('friendships').update({status:'declined'}).eq('id',id);
+    setReqs(q=>q.filter(x=>x.id!==id));
+  };
+
   const sc=s=>s==="online"?COLORS.green:s==="on a task"?COLORS.bu:"var(--tt)";
   return(
     <div style={{flex:1,overflowY:"auto",padding:16,minHeight:0}}>
@@ -790,23 +850,27 @@ function FriendsScreen(){
       )}
       {tab==="add"&&(
         <>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by name..." style={{marginBottom:14,fontSize:13,padding:"10px 14px"}}/>
-          <p style={{fontSize:12,color:"var(--tt)",margin:"0 0 14px"}}>People you might know</p>
-          {NEARBY.filter(p=>!friends.find(f=>f.name===p.name)).map(p=>(
+          <input value={search} onChange={e=>searchUsers(e.target.value)} placeholder="Search by name..." style={{marginBottom:14,fontSize:13,padding:"10px 14px"}}/>
+          {searching&&<p style={{textAlign:"center",color:"var(--tt)",fontSize:13}}>Searching...</p>}
+          {search.length>1&&searchResults.length===0&&!searching&&<p style={{textAlign:"center",color:"var(--tt)",fontSize:13,marginTop:10}}>No users found</p>}
+          {searchResults.map(p=>(
             <div key={p.id} style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:16,padding:"12px 14px",marginBottom:10,display:"flex",gap:12,alignItems:"center"}}>
-              <Av initials={p.initials} color={p.color} size={42} level={p.level}/>
+              <Av initials={p.avatar_initials||'?'} color={p.avatar_color||COLORS.bu} size={42} level={getRank(p.xp||0).level}/>
               <div style={{flex:1}}>
                 <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:3}}>
                   <p style={{margin:0,fontSize:14,fontWeight:700,color:"var(--tp)"}}>{p.name}</p>
-                  <RankPill level={p.level} small/>
+                  <RankPill level={getRank(p.xp||0).level} small/>
                 </div>
                 <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
-                  {p.interests.map(i=><span key={i} style={{fontSize:10,color:COLORS.bu,background:COLORS.bu+"15",borderRadius:6,padding:"1px 7px",fontWeight:700}}>{i}</span>)}
+                  {(p.interests||[]).slice(0,3).map(i=><span key={i} style={{fontSize:10,color:COLORS.bu,background:COLORS.bu+"15",borderRadius:6,padding:"1px 7px",fontWeight:700}}>{i}</span>)}
                 </div>
               </div>
-              <button style={{padding:"7px 13px",borderRadius:10,border:"none",background:`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`,color:"white",fontSize:12,fontWeight:700}}>+ Add</button>
+              <button onClick={()=>sendRequest(p.id)} disabled={sentReqs[p.id]} style={{padding:"7px 13px",borderRadius:10,border:"none",background:sentReqs[p.id]?COLORS.green:`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`,color:"white",fontSize:12,fontWeight:700}}>
+                {sentReqs[p.id]?"Sent ✓":"+ Add"}
+              </button>
             </div>
           ))}
+          {search.length<2&&<p style={{fontSize:12,color:"var(--tt)",textAlign:"center",marginTop:10}}>Type at least 2 letters to search</p>}
         </>
       )}
     </div>
@@ -1052,7 +1116,7 @@ function App(){
                   {tab==="home"&&<HomeScreen name={name} xp={xp} userId={userId} onOpenChat={()=>setChatState(s=>({...s,open:true}))}/>}
                   {tab==="tasks"&&<TasksScreen onXPGain={gainXP} userId={userId}/>}
                   {tab==="nearby"&&<NearbyScreen onXPGain={gainXP}/>}
-                  {tab==="friends"&&<FriendsScreen/>}
+                  {tab==="friends"&&<FriendsScreen userId={userId}/>}
                   {tab==="profile"&&<ProfileScreen name={name} interests={ints} xp={xp} onDelete={deleteAccount}/>}
                 </>
               )}
