@@ -243,6 +243,7 @@ function AuthScreen({onAuth}){
   const [mode,setMode]=useState("login");
   const [email,setEmail]=useState("");
   const [password,setPassword]=useState("");
+  const [fullName,setFullName]=useState("");
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
 
@@ -255,7 +256,7 @@ function AuthScreen({onAuth}){
       if(mode==="login"){
         result=await supabase.auth.signInWithPassword({email,password});
       }else{
-        result=await supabase.auth.signUp({email,password});
+        result=await supabase.auth.signUp({email,password,options:{data:{name:fullName||email.split('@')[0]}}});
       }
       if(result.error){
         setError(result.error.message);
@@ -277,7 +278,8 @@ function AuthScreen({onAuth}){
       
       {error&&<div style={{background:"#FF6B6B18",border:"1px solid #FF6B6B40",borderRadius:12,padding:"10px 16px",marginBottom:16,fontSize:13,color:"#FF6B6B",width:"100%",maxWidth:320}}>{error}</div>}
       
-      <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email" type="email" style={{maxWidth:320,marginBottom:12,fontSize:15}} autoFocus/>
+      {mode==="signup"&&<input value={fullName} onChange={e=>setFullName(e.target.value)} placeholder="Your name" style={{maxWidth:320,marginBottom:12,fontSize:15}}/>}
+<input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Your email" type="email" style={{maxWidth:320,marginBottom:12,fontSize:15}} autoFocus/>
       <input value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handle()} placeholder="Password" type="password" style={{maxWidth:320,marginBottom:20,fontSize:15}}/>
       
       <button onClick={handle} disabled={loading||!email.trim()||!password.trim()} style={{width:"100%",maxWidth:320,padding:"14px 0",borderRadius:14,border:"none",background:email.trim()&&password.trim()?`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`:"#E8E5F5",color:email.trim()&&password.trim()?"white":"var(--tt)",fontSize:15,fontWeight:700,marginBottom:16}}>
@@ -953,7 +955,29 @@ function App(){
   },[]);
   const loadProfile=async(uid)=>{
     const {data}=await supabase.from('profiles').select('*').eq('id',uid).single();
-    if(data){setUserId(uid);setName(data.name||'');setInts(data.interests||[]);setXp(data.xp||0);setScreen('app');}
+    if(data){
+      setUserId(uid);
+      setName(data.name||'');
+      setInts(data.interests||[]);
+      setXp(data.xp||0);
+      setScreen('app');
+    } else {
+      // Profile doesn't exist yet - get name from auth metadata
+      const {data:authData}=await supabase.auth.getUser();
+      const metaName=authData?.user?.user_metadata?.name||authData?.user?.email?.split('@')[0]||'Buddy';
+      await supabase.from('profiles').upsert({
+        id:uid,
+        name:metaName,
+        interests:[],
+        xp:0,
+        level:1,
+        avatar_initials:metaName[0].toUpperCase(),
+        avatar_color:COLORS.bu
+      });
+      setUserId(uid);
+      setName(metaName);
+      setScreen('name');
+    }
     setAuthLoading(false);
   };
   const saveProfile=async(uid,profileName,profileInts)=>{
