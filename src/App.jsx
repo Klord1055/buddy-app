@@ -533,14 +533,18 @@ function HomeScreen({name,xp,userId,onOpenChat}){
   const hour=new Date().getHours();
   const greet=hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
   const rank=getRank(xp);
-  useEffect(()=>{loadPosts();},[]);
+  useEffect(()=>{if(userId){loadPosts();loadLikes();}else{loadPosts();}},[userId]);
+  const loadLikes=async()=>{
+    const {data}=await supabase.from('post_likes').select('post_id').eq('user_id',userId);
+    if(data){const l={};data.forEach(x=>{l[x.post_id]=true;});setLiked(l);}
+  };
   const loadPosts=async()=>{
     setLoadingPosts(true);
     try{
-      const {data,error}=await supabase.from('feed_posts').select(`id,content,task_label,likes_count,created_at,profiles!feed_posts_user_id_fkey(name,avatar_initials,avatar_color,xp)`).order('created_at',{ascending:false}).limit(20);
+      const {data,error}=await supabase.from('feed_posts').select(`id,user_id,content,task_label,likes_count,created_at,profiles!feed_posts_user_id_fkey(name,avatar_initials,avatar_color,xp)`).order('created_at',{ascending:false}).limit(20);
       if(error) console.log('Feed error:',error);
       if(data){
-        const realPosts=data.map(p=>({id:p.id,user:p.profiles?.name||'Buddy User',initials:p.profiles?.avatar_initials||'?',color:p.profiles?.avatar_color||COLORS.bu,time:timeAgo(p.created_at),content:p.content,likes:p.likes_count,task:p.task_label,level:getRank(p.profiles?.xp||0).level}));
+        const realPosts=data.map(p=>({id:p.id,user:p.profiles?.name||'Buddy User',initials:p.profiles?.avatar_initials||'?',color:p.profiles?.avatar_color||COLORS.bu,time:timeAgo(p.created_at),content:p.content,likes:p.likes_count,task:p.task_label,level:getRank(p.profiles?.xp||0).level,userId:p.user_id}));
         setPosts(realPosts.length>0?realPosts:FEED_POSTS);
       }
     }catch(e){console.log('Using mock feed');}
@@ -549,14 +553,16 @@ function HomeScreen({name,xp,userId,onOpenChat}){
   const handleLike=async(postId)=>{
     const alreadyLiked=liked[postId];
     setLiked(l=>({...l,[postId]:!alreadyLiked}));
+    setPosts(prev=>prev.map(p=>p.id===postId?{...p,likes:Math.max(0,p.likes+(alreadyLiked?-1:1))}:p));
     if(userId){
       if(!alreadyLiked){
         await supabase.from('post_likes').insert({user_id:userId,post_id:postId});
-        const post=posts.find(p=>p.id===postId);
-        if(post)await supabase.from('feed_posts').update({likes_count:(post.likes||0)+1}).eq('id',postId);
       }else{
         await supabase.from('post_likes').delete().match({user_id:userId,post_id:postId});
       }
+      const {count}=await supabase.from('post_likes').select('*',{count:'exact',head:true}).eq('post_id',postId);
+      await supabase.from('feed_posts').update({likes_count:count??0}).eq('id',postId);
+      setPosts(prev=>prev.map(p=>p.id===postId?{...p,likes:count??0}:p));
     }
   };
   return(
@@ -584,6 +590,7 @@ function HomeScreen({name,xp,userId,onOpenChat}){
         <button onClick={()=>setShowPost(true)} style={{background:`linear-gradient(135deg,${COLORS.bu},#7BA7F5)`,border:"none",borderRadius:10,padding:"6px 14px",fontSize:12,fontWeight:700,color:"white"}}>+ Post</button>
       </div>
       {showPost&&<PostModal userId={userId} userName={name} onClose={()=>setShowPost(false)} onPost={content=>{setPosts(p=>[{id:Date.now(),user:name,initials:name[0]?.toUpperCase()||'?',color:COLORS.bu,time:'just now',content,likes:0,task:null,level:getRank(xp).level},...p]);setShowPost(false);loadPosts();}}/>}
+      {posts.some(x=>x.menuOpen)&&<div style={{position:"fixed",inset:0,zIndex:49}} onClick={()=>setPosts(prev=>prev.map(x=>({...x,menuOpen:false})))}/>}
       {loadingPosts&&<p style={{textAlign:"center",color:"var(--tt)",fontSize:13,padding:"20px 0"}}>Loading posts...</p>}
       {posts.map((p,idx)=>(
         <div key={p.id} className="fi" style={{background:"var(--card)",border:"1px solid var(--border)",borderRadius:18,padding:14,marginBottom:12,animationDelay:`${idx*.07}s`}}>
@@ -596,12 +603,20 @@ function HomeScreen({name,xp,userId,onOpenChat}){
                   <span style={{fontSize:13.5,fontWeight:700,color:"var(--tp)"}}>{p.user}</span>
                   <RankPill level={p.level} small/>
                 </div>
-                <span style={{fontSize:11,color:"var(--tt)"}}>{p.time}</span>
+                <span style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:11,color:"var(--tt)"}}>{p.time}</span>
+                  {p.userId===userId&&<div style={{position:"relative"}}>
+                    <button onClick={(e)=>{e.stopPropagation();setPosts(prev=>prev.map(x=>x.id===p.id?{...x,menuOpen:!x.menuOpen}:{...x,menuOpen:false}));}} style={{background:"none",border:"none",fontSize:16,color:"var(--tt)",padding:"2px 6px",borderRadius:6,lineHeight:1}}>···</button>
+                    {p.menuOpen&&<div style={{position:"absolute",right:0,top:"100%",background:"var(--card)",border:"1px solid var(--border)",borderRadius:12,padding:4,zIndex:50,minWidth:120,boxShadow:"0 4px 16px rgba(0,0,0,.1)"}}>
+                      <button onClick={async(e)=>{e.stopPropagation();await supabase.from('feed_posts').delete().eq('id',p.id);setPosts(prev=>prev.filter(x=>x.id!==p.id));}} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"none",background:"none",color:"#FF6B6B",fontSize:13,fontWeight:700,textAlign:"left",whiteSpace:"nowrap"}}>Delete post</button>
+                    </div>}
+                  </div>}
+                </span>
               </div>
-              <p style={{fontSize:13,color:"var(--tp)",margin:"0 0 10px",lineHeight:1.6}}>{p.content}</p>
+              <p style={{fontSize:13,color:"var(--tp)",margin:"0 0 10px",lineHeight:1.6,textAlign:"left"}}>{p.content}</p>
               <button onClick={()=>handleLike(p.id)} style={{background:liked[p.id]?COLORS.dd+"12":"none",border:"none",fontSize:12,color:liked[p.id]?COLORS.dd:"var(--ts)",display:"flex",alignItems:"center",gap:5,padding:"4px 8px",borderRadius:8,fontWeight:600}}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill={liked[p.id]?COLORS.dd:"none"} stroke={liked[p.id]?COLORS.dd:"currentColor"} strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                {p.likes+(liked[p.id]?1:0)}
+                {p.likes}
               </button>
             </div>
           </div>
